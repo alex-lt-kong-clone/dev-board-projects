@@ -215,7 +215,9 @@ void loop() {
     reconnect_mqtts();
   }
 
-  if (mqtts_client.publish(MQTT_TOPIC, msgPackStr.c_str())) {
+  if (mqtts_client.publish(
+          MQTT_TOPIC, reinterpret_cast<const uint8_t *>(msgPackStr.data()),
+          size)) {
     Serial.println("done");
   } else {
     Serial.println("failed!");
