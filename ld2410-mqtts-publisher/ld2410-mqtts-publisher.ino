@@ -18,9 +18,9 @@ MyLD2410 sensor(sensorSerial, true);
 MyLD2410 sensor(sensorSerial);
 #endif
 
-unsigned long next_positive_publish_at = 0;
-unsigned long next_negative_publish_at = 0;
-bool is_prev_positive = true;
+uint32_t last_publish_at = 0;
+bool has_published = false;
+bool is_prev_positive = false;
 
 void printValue(const byte &val) {
   Serial.print(' ');
@@ -108,6 +108,7 @@ void reconnect_mqtts() {
                 ":%d with MQTT_CLIENT_ID: " MQTT_CLIENT_ID "\n",
                 MQTT_PORT);
   if (mqtts_client.connect(MQTT_CLIENT_ID, MQTT_USERNAME, MQTT_PASSWORD)) {
+    has_published = false;
     Serial.println("connected");
   } else {
     Serial.printf("mqtts_client.connect() failed, state = %d; retrying in 10 seconds\n",
@@ -165,24 +166,17 @@ void loop() {
     return;
   const auto t_ms = millis();
 
-  // if (millis < next_positive_publish_at && millis < next_negative_publish_at)
-  //   return;
-
   const auto moving_target_detected = sensor.movingTargetDetected();
   const auto stationary_target_detected = sensor.stationaryTargetDetected();
 
   const auto is_curr_positive =
       moving_target_detected || stationary_target_detected;
-  if (!is_prev_positive && !is_curr_positive && t_ms < next_negative_publish_at)
+  const uint32_t publish_interval_ms = is_curr_positive
+                                          ? MQTT_POSITIVE_PUBLISH_INTERVAL_MS
+                                          : MQTT_NEGATIVE_PUBLISH_INTERVAL_MS;
+  if (has_published && is_prev_positive == is_curr_positive &&
+      uint32_t(t_ms - last_publish_at) < publish_interval_ms)
     return;
-  if ((is_prev_positive || is_curr_positive) && t_ms < next_positive_publish_at)
-    return;
-  is_prev_positive = is_curr_positive;
-
-  if (is_curr_positive)
-    next_positive_publish_at = t_ms + MQTT_POSITIVE_PUBLISH_INTERVAL_MS;
-  else
-    next_negative_publish_at = t_ms + MQTT_NEGATIVE_PUBLISH_INTERVAL_MS;
 
   JsonDocument jsonDoc;
   jsonDoc["stationary_target_detected"] = stationary_target_detected;
@@ -204,6 +198,9 @@ void loop() {
   if (mqtts_client.publish(
           MQTT_TOPIC, reinterpret_cast<const uint8_t *>(msgPackStr.data()),
           size)) {
+    last_publish_at = millis();
+    has_published = true;
+    is_prev_positive = is_curr_positive;
     Serial.println("done");
   } else {
     Serial.println("failed!");
