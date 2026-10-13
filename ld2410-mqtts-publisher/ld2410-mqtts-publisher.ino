@@ -150,12 +150,12 @@ void setup() {
   setup_sensor();
 
   setup_wifi();
-#if defined(MQTT_SSL_SET_INSECURE) && MQTT_SSL_SET_INSECURE
+#if defined(MQTT_SSL_SET_INSECURE)
   Serial.println(
       "wifi_client.setInsecure(), SSL certificate verification skipped");
   wifi_client.setInsecure();
 #else
-  Serial.println("Using the configured CA certificate for MQTT TLS");
+  Serial.printf("wifi_client.setCACert(): %s\n", root_ca);
   wifi_client.setCACert(root_ca);
 #endif
   mqtts_client.setServer(MQTT_SERVER, MQTT_PORT);

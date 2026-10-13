@@ -3,15 +3,14 @@
 
 #define MQTT_CLIENT_ID "MyMqttClient"
 #define MQTT_SERVER "mqtt.example.org"
-#define MQTT_PORT 8883
+#define MQTT_PORT 1883
 #define MQTT_TOPIC "mqtt/topic"
 #define MQTT_USERNAME "user"
 #define MQTT_PASSWORD "pa$$w0rd"
 #define MQTT_POSITIVE_PUBLISH_INTERVAL_MS 1000
 #define MQTT_NEGATIVE_PUBLISH_INTERVAL_MS 60000
-#define MQTT_SSL_SET_INSECURE 0
+#define MQTT_SSL_SET_INSECURE 1
 
-// Replace with your broker's trusted CA certificate.
 const char *root_ca = R"(
 -----BEGIN CERTIFICATE-----
 MIIDijCCAxGgAwIBAgISBTSvSClNntOf2PNprdOvDR1aMAoGCCqGSM49BAMDMDIx
