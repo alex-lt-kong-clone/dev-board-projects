@@ -170,6 +170,10 @@ void setup() {
 }
 
 void loop() {
+  mqtts_client.loop();
+  if (!mqtts_client.connected())
+    reconnect_mqtts();
+
   if (sensor.check() != MyLD2410::Response::DATA)
     return;
   const auto t_ms = millis();
@@ -209,11 +213,6 @@ void loop() {
 
   std::string msgPackStr;
   size_t size = serializeMsgPack(jsonDoc, msgPackStr);
-
-  mqtts_client.loop();
-  if (!mqtts_client.connected()) {
-    reconnect_mqtts();
-  }
 
   if (mqtts_client.publish(
           MQTT_TOPIC, reinterpret_cast<const uint8_t *>(msgPackStr.data()),
