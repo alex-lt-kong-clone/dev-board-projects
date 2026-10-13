@@ -21,6 +21,9 @@ MyLD2410 sensor(sensorSerial);
 uint32_t last_publish_at = 0;
 bool has_published = false;
 bool is_prev_positive = false;
+bool sensor_ready = false;
+uint32_t last_sensor_attempt_at = 0;
+uint32_t last_sensor_data_at = 0;
 
 void printValue(const byte &val) {
   Serial.print(' ');
@@ -117,6 +120,18 @@ void reconnect_mqtts() {
   last_mqtt_attempt_at = millis();
 }
 
+void setup_sensor() {
+  sensor_ready = sensor.begin() && sensor.enhancedMode();
+  last_sensor_attempt_at = millis();
+  if (sensor_ready) {
+    last_sensor_data_at = last_sensor_attempt_at;
+    has_published = false;
+    Serial.println("Sensor connected");
+  } else {
+    Serial.println("Failed to communicate with the sensor; retrying in 5 seconds");
+  }
+}
+
 void setup() {
   delay(10000);
   Serial.begin(SERIAL_BAUD_RATE);
@@ -132,13 +147,7 @@ void setup() {
 
   delay(2000);
   Serial.println(__FILE__);
-  if (!sensor.begin()) {
-    Serial.println("Failed to communicate with the sensor.");
-    while (true) {
-    }
-  }
-  //  enhanced (engineering) modes.
-  sensor.enhancedMode();
+  setup_sensor();
 
   setup_wifi();
 #if defined(MQTT_SSL_SET_INSECURE) && MQTT_SSL_SET_INSECURE
@@ -157,14 +166,28 @@ void loop() {
   mqtts_client.loop();
   reconnect_mqtts();
 
+  if (!sensor_ready) {
+    if (uint32_t(millis() - last_sensor_attempt_at) >= 5000UL)
+      setup_sensor();
+    return;
+  }
+
   bool has_sensor_data = false;
   while (sensorSerial.available()) {
     if (sensor.check() == MyLD2410::Response::DATA)
       has_sensor_data = true;
   }
-  if (!has_sensor_data || !mqtts_client.connected())
-    return;
   const auto t_ms = millis();
+  if (!has_sensor_data) {
+    if (uint32_t(t_ms - last_sensor_data_at) >= 5000UL) {
+      sensor_ready = false;
+      Serial.println("Sensor data timed out; reconnecting");
+    }
+    return;
+  }
+  last_sensor_data_at = t_ms;
+  if (!mqtts_client.connected())
+    return;
 
   const auto moving_target_detected = sensor.movingTargetDetected();
   const auto stationary_target_detected = sensor.stationaryTargetDetected();
