@@ -78,59 +78,42 @@ void printData() {
 
 WiFiClientSecure wifi_client;
 PubSubClient mqtts_client(wifi_client);
+uint32_t last_wifi_attempt_at = 0;
+uint32_t last_mqtt_attempt_at = 0;
+bool mqtt_attempted = false;
 
-void setup_wifi(int attempts = 0) {
-  const auto max_attempts = 10;
-  if (attempts >= max_attempts) {
-    Serial.printf("\nmax_attempts (%d) reached, restarting the device as the "
-                  "last resort\n",
-                  max_attempts);
-#if defined(ARDUINO_ARCH_ESP32)
-    ESP.restart();
-#elif defined(ARDUINO_ARCH_RP2040)
-    rp2040.reboot();
-#endif
-  }
+void setup_wifi() {
   WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-  Serial.printf("\nConnecting to WiFi [" WIFI_SSID "] (%d/%d)\n", attempts + 1,
-                max_attempts);
-
-  for (int i = 0; i < 60; ++i) {
-    delay(1000);
-    Serial.print(".");
-    if (WiFi.status() != WL_CONNECTED)
-      continue;
-
-    Serial.println("\nWiFi connected!");
-    Serial.print("IP address: ");
-    Serial.println(WiFi.localIP());
-    return;
-  }
-  setup_wifi(attempts + 1);
+  last_wifi_attempt_at = millis();
+  Serial.println("Connecting to WiFi [" WIFI_SSID "]");
 }
 
 void reconnect_mqtts() {
-  while (!mqtts_client.connected()) {
-
-    if (WiFi.status() != WL_CONNECTED) {
-      Serial.println("WiFi lost. Reconnecting...");
+  const auto t_ms = millis();
+  if (WiFi.status() != WL_CONNECTED) {
+    mqtt_attempted = false;
+    if (mqtts_client.connected())
+      mqtts_client.disconnect();
+    if (uint32_t(t_ms - last_wifi_attempt_at) >= 60000UL)
       setup_wifi();
-    }
-
-    Serial.printf("Connecting to MQTT broker " MQTT_SERVER
-                  ":%d with MQTT_CLIENT_ID: " MQTT_CLIENT_ID "\n",
-                  MQTT_PORT);
-    if (mqtts_client.connect(MQTT_CLIENT_ID, MQTT_USERNAME, MQTT_PASSWORD)) {
-      Serial.println("connected");
-    } else {
-      const int retry_delay_ms = 10 * 1000;
-      Serial.print("mqtts_client.connect() failed, mqtts_client.state() = ");
-      Serial.print(mqtts_client.state());
-      Serial.printf(" retrying in %d seconds\n", retry_delay_ms / 1000);
-      delay(retry_delay_ms);
-    }
+    return;
   }
+  if (mqtts_client.connected() ||
+      (mqtt_attempted && uint32_t(t_ms - last_mqtt_attempt_at) < 10000UL))
+    return;
+
+  mqtt_attempted = true;
+  Serial.printf("Connecting to MQTT broker " MQTT_SERVER
+                ":%d with MQTT_CLIENT_ID: " MQTT_CLIENT_ID "\n",
+                MQTT_PORT);
+  if (mqtts_client.connect(MQTT_CLIENT_ID, MQTT_USERNAME, MQTT_PASSWORD)) {
+    Serial.println("connected");
+  } else {
+    Serial.printf("mqtts_client.connect() failed, state = %d; retrying in 10 seconds\n",
+                  mqtts_client.state());
+  }
+  last_mqtt_attempt_at = millis();
 }
 
 void setup() {
@@ -156,7 +139,6 @@ void setup() {
   //  enhanced (engineering) modes.
   sensor.enhancedMode();
 
-  //  delay(next_positive_publish_at);
   setup_wifi();
 #if defined(MQTT_SSL_SET_INSECURE)
   Serial.println(
@@ -167,14 +149,19 @@ void setup() {
   wifi_client.setCACert(root_ca);
 #endif
   mqtts_client.setServer(MQTT_SERVER, MQTT_PORT);
+  mqtts_client.setSocketTimeout(2);
 }
 
 void loop() {
   mqtts_client.loop();
-  if (!mqtts_client.connected())
-    reconnect_mqtts();
+  reconnect_mqtts();
 
-  if (sensor.check() != MyLD2410::Response::DATA)
+  bool has_sensor_data = false;
+  while (sensorSerial.available()) {
+    if (sensor.check() == MyLD2410::Response::DATA)
+      has_sensor_data = true;
+  }
+  if (!has_sensor_data || !mqtts_client.connected())
     return;
   const auto t_ms = millis();
 
